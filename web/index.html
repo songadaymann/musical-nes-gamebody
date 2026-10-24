@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eee9d9">
+  <title>Gamebody — play your NES</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="jsnes.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Gamebody<span aria-hidden="true">*</span></h1>
+      <a href="gamebody.nes" download>Download ROM ↗</a>
+    </header>
+    <div class="instrument">
+      <div class="screen">
+        <canvas id="screen" width="256" height="240" aria-label="NES instrument screen showing the current note and controller layout"></canvas>
+        <div id="launch"><button id="play" disabled>Loading…</button></div>
+      </div>
+      <section class="controls" aria-label="Instrument controls">
+        <p id="status" role="status">Loading the cartridge…</p>
+        <div class="controller">
+          <div class="dpad" aria-label="Notes">
+            <button class="up" data-button="UP" aria-label="Up note, arrow up">↑</button>
+            <button class="left" data-button="LEFT" aria-label="Left note, arrow left">←</button>
+            <span class="center" aria-hidden="true"></span>
+            <button class="right" data-button="RIGHT" aria-label="Right note, arrow right">→</button>
+            <button class="down" data-button="DOWN" aria-label="Down note, arrow down">↓</button>
+          </div>
+          <div class="effects">
+            <div><button class="round" data-button="B" aria-label="Hold B for rhythmic bursts, keyboard Z">B</button><span>Burst <kbd>Z</kbd></span></div>
+            <div><button class="round" data-button="A" aria-label="Hold A for more notes, keyboard X">A</button><span>More <kbd>X</kbd></span></div>
+          </div>
+        </div>
+        <div class="octaves">
+          <button data-button="SELECT" aria-label="Lower octave, Select or Shift">− Octave <kbd>Shift</kbd></button>
+          <button data-button="START" aria-label="Higher octave, Start or Enter">+ Octave <kbd>Enter</kbd></button>
+        </div>
+        <p class="hint">Arrow keys play notes.<br>Hold X or Z while you play.</p>
+        <button id="pause" hidden>Pause sound</button>
+      </section>
+    </div>
+    <footer>
+      <span>A tiny instrument for a real NES.</span>
+      <a href="https://github.com/songadaymann/musical-nes-gamebody" target="_blank" rel="noreferrer">Source ↗</a>
+    </footer>
+  </main>
+</body>
+</html>

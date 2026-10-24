@@ -1,0 +1,20 @@
+name: Build and check the cartridge
+on: [push, pull_request]
+jobs:
+  rom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install the NES assembler
+        run: sudo apt-get update && sudo apt-get install -y cc65
+      - run: npm ci
+      - run: npm test
+      - name: Keep the playable ROM
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamebody-nes
+          path: build/gamebody.nes

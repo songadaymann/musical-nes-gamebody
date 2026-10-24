@@ -1,0 +1,16 @@
+{
+  "name": "musical-nes-gamebody",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A pick-up-and-play NES cartridge instrument.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "python3 scripts/build.py",
+    "start": "node scripts/serve.mjs",
+    "test": "npm run build && node --test tests/rom.test.mjs",
+    "demo": "npm run build && node scripts/render-demo.mjs"
+  },
+  "dependencies": { "jsnes": "2.1.0" },
+  "devDependencies": { "pngjs": "7.0.0" }
+}
