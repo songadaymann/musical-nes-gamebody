@@ -8,7 +8,7 @@
   "scripts": {
     "build": "python3 scripts/build.py",
     "start": "node scripts/serve.mjs",
-    "test": "npm run build && node --test tests/rom.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "demo": "npm run build && node scripts/render-demo.mjs"
   },
   "dependencies": {

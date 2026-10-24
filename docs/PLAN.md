@@ -1,5 +1,34 @@
 # Gamebody prototype
 
+## Browser latency
+
+- [x] Measure the preview's audio queue and reported output delay.
+- [x] Drive emulation from audio demand, independently of screen refresh.
+- [x] Bound buffering and preserve loop timing through pause/resume.
+- [x] Test the audio transport and verify keyboard play in the browser.
+
+The preview now requests one NES frame when the audio queue needs it. Painting
+and accessible status updates run separately. Generation IDs reject pending
+audio from before a pause. The ROM and its controls are unchanged.
+
+On October 24, 2026, the old queue averaged 31.6 ms and peaked at 45 ms.
+The final queue averaged 20.8 ms and peaked at 30.7 ms, with zero missing samples
+across two runs totaling over 60 seconds. Checks included keyboard recording,
+adding a second part, and resuming both parts after a pause. Browser errors: none.
+
+The output path changed during the check: the old run used 48 kHz and reported
+168 ms of output delay; the new run used 44.1 kHz and reported 32 ms. The output
+delay change is not attributed to the code. Only the preview queue is being
+compared; physical key-to-ear latency has not been measured.
+
+A 6 ms refill allowance produced gaps under browser load; 12 ms left one
+0.5 ms gap after resuming. The final value is 14 ms. All 34 checks pass:
+26 ROM checks and eight audio checks, including
+three sample rates, delayed replies, stale packets, pause/resume, and ten
+seconds of real-ROM playback without any screen refresh callbacks. The ROM
+still matches the published v0.2.0 SHA-256:
+`508ffc4e0593158a3ddb22d9e8b9dfbb0e60b81f1c61f269b9a112d9cb302525`.
+
 ## Version 0.2.0: sounds and two-part loops
 
 - [x] Make Select cycle C4 → C5 → C2 → C3 → C4.

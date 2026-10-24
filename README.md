@@ -123,6 +123,25 @@ NES has no native sine oscillator.
 All sound comes from the NES's built-in audio hardware. The preview plays
 emulator output without adding synthesis, effects, samples, or a backing track.
 
+### Browser response time
+
+The audio clock requests one emulated frame at a time; drawing the screen does
+not schedule the sound. A 14 ms refill allowance keeps the queue below about
+31 ms while leaving time to emulate the next frame. Pausing freezes the ROM
+and discards pending sound; resuming continues the same recording or loop.
+
+If playing feels late through AirPods or other wireless headphones, compare
+with the computer's speakers or wired headphones. The output device can add
+delay beyond the preview's queue.
+
+For timing checks, open [localhost:4173/?timing=1](http://localhost:4173/?timing=1).
+The optional readout shows the queue, missing audio time, emulation work, and
+the browser's [base latency](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/baseLatency)
+and [output latency estimate](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/outputLatency).
+These are separate parts of the path, not a physical measurement from key press
+to audible sound. Measurements reset on resume; intentional startup silence
+does not count as missing audio. There is no timing readout in the normal view.
+
 ## Check and render
 
 ```sh
@@ -134,6 +153,10 @@ The ROM tests cover startup silence, tuning, note and modifier gestures,
 all three sounds, recording, playing along, adding and replacing a second
 part, loop boundaries, capacity, clearing, reset, channel priority, and display
 writes during vertical blanking.
+
+Audio transport tests check sample order at 44.1, 48, and 96 kHz, delayed
+responses, bounded buffering, stale packets, and pause/resume. They also run
+the real ROM without screen refresh callbacks to check recording and tempo.
 
 The demo command writes `output/gamebody-demo.wav` and
 `output/cartridge-screen.png`. The audio records a square melody, adds a lower

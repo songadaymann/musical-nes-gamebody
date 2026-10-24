@@ -15,8 +15,29 @@
   const applied = new Set();
   let rom, addresses, nes, audio, speaker, running = false, loading = false;
   let shownLoop = -1;
-  let animation, nextFrame = 0, samples = [], gamepadConnected = false;
-  const frameMs = 1000 / 60.0988;
+  let animation, samples = null, gamepadConnected = false;
+  let latestFrame, frameReady = false, epoch = 0, lastRequest = 0;
+  let frameWorkTotal = 0, frameWorkPeak = 0, framesProduced = 0;
+  const timingEnabled = new URLSearchParams(location.search).has('timing');
+  const timingOutput = timingEnabled ? document.createElement('pre') : null;
+  if (timingOutput) {
+    timingOutput.id = 'audio-timing';
+    timingOutput.setAttribute('aria-label', 'Audio timing diagnostics');
+    document.querySelector('main').append(timingOutput);
+  }
+
+  function reportTiming(data) {
+    if (!timingOutput || data.type !== 'stats' || !running || data.epoch !== epoch) return;
+    const ms = value => Math.round(value * 10) / 10;
+    timingOutput.textContent = JSON.stringify({
+      queueMeanMs: ms(data.queueMeanMs), queuePeakMs: ms(data.queuePeakMs),
+      underrunMs: ms(data.underrunMs), elapsedSeconds: ms(data.elapsedSeconds),
+      frameWorkMeanMs: ms(frameWorkTotal / framesProduced), frameWorkPeakMs: ms(frameWorkPeak),
+      browserBaseMs: Math.round(audio.baseLatency * 1000),
+      reportedOutputMs: Number.isFinite(audio.outputLatency) ? Math.round(audio.outputLatency * 1000) : null,
+      sampleRate: audio.sampleRate,
+    }, null, 2);
+  }
 
   // Reflect the cartridge's state for accessible browser controls. Recording
   // itself lives in the ROM. Addresses are generated from assembler symbols.
@@ -40,6 +61,7 @@
     console.error(error);
     running = false;
     cancelAnimationFrame(animation);
+    speaker?.port.postMessage({ type: 'stop', epoch: ++epoch });
     launch.hidden = false;
     play.disabled = false;
     play.textContent = 'Try again';
@@ -87,23 +109,35 @@
     syncInputs();
   }
 
-  function tick(now) {
+  // Respond immediately to the audio clock; don't wait for an animation frame.
+  function audioMessage({ data }) {
+    if (data.type === 'stats') { reportTiming(data); return; }
+    if (!running || data.type !== 'frame' || data.epoch !== epoch || data.request <= lastRequest) return;
+    lastRequest = data.request;
+    try {
+      const began = performance.now();
+      pollGamepad();
+      samples = [];
+      nes.frame();
+      const buffer = new Float32Array(samples);
+      samples = null;
+      speaker.port.postMessage({ type: 'samples', epoch, request: data.request, samples: buffer }, [buffer.buffer]);
+      const duration = performance.now() - began;
+      frameWorkTotal += duration;
+      frameWorkPeak = Math.max(frameWorkPeak, duration);
+      framesProduced++;
+    } catch (error) { showError(error); }
+  }
+
+  function tick() {
     if (!running) return;
     try {
-      pollGamepad();
-      if (now - nextFrame > 100) nextFrame = now;
-      let count = 0;
-      while (now >= nextFrame && count < 3) {
-        nes.frame();
-        nextFrame += frameMs;
-        count++;
+      if (frameReady) {
+        for (let i = 0; i < latestFrame.length; i++) pixels[i] = 0xff000000 | latestFrame[i];
+        context.putImageData(image, 0, 0);
+        frameReady = false;
       }
       updateReadout();
-      if (samples.length) {
-        const buffer = new Float32Array(samples);
-        samples = [];
-        speaker.port.postMessage({ samples: buffer }, [buffer.buffer]);
-      }
       animation = requestAnimationFrame(tick);
     } catch (error) { showError(error); }
   }
@@ -116,18 +150,19 @@
       if (!audio) {
         audio = new AudioContext({ latencyHint: 'interactive' });
         await audio.audioWorklet.addModule('audio-worklet.js');
-        speaker = new AudioWorkletNode(audio, 'gamebody-audio', { outputChannelCount: [1] });
+        speaker = new AudioWorkletNode(audio, 'gamebody-audio', {
+          outputChannelCount: [1], processorOptions: { diagnostics: timingEnabled },
+        });
+        speaker.port.onmessage = audioMessage;
+        speaker.onprocessorerror = () => showError(new Error('Audio playback stopped. Reload the page.'));
         speaker.connect(audio.destination);
       }
       await audio.resume();
       if (!nes) {
         nes = new jsnes.NES({
           sampleRate: audio.sampleRate,
-          onFrame(frame) {
-            for (let i = 0; i < frame.length; i++) pixels[i] = 0xff000000 | frame[i];
-            context.putImageData(image, 0, 0);
-          },
-          onAudioSample(left, right) { samples.push((left + right) * 0.4); },
+          onFrame(frame) { latestFrame = frame; frameReady = true; },
+          onAudioSample(left, right) { samples?.push((left + right) * 0.4); },
         });
         nes.loadROM(rom);
         for (let i = 0; i < 56; i++) nes.frame();
@@ -135,15 +170,15 @@
       clearInputs();
       // Resume at the same frame. Advancing silently here would add rests to
       // a recording or skip part of a playing loop.
-      samples = [];
-      speaker.port.postMessage({ type: 'clear' });
+      samples = null;
+      lastRequest = frameWorkTotal = frameWorkPeak = framesProduced = 0;
       running = true;
+      speaker.port.postMessage({ type: 'start', epoch: ++epoch });
       launch.hidden = true;
       pause.hidden = false;
       pause.textContent = 'Pause sound';
       shownLoop = -1;
       updateReadout();
-      nextFrame = performance.now();
       animation = requestAnimationFrame(tick);
       play.blur();
     } catch (error) { showError(error); }
@@ -154,8 +189,8 @@
     clearInputs();
     running = false;
     cancelAnimationFrame(animation);
-    samples = [];
-    speaker?.port.postMessage({ type: 'clear' });
+    samples = null;
+    speaker?.port.postMessage({ type: 'stop', epoch: ++epoch });
     audio?.suspend().catch(console.error);
     pause.textContent = 'Resume sound';
     status.textContent = 'Paused.';
