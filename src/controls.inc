@@ -289,11 +289,18 @@ silent:
 .endproc
 
 ; One byte per frame: B / patch (2 bits) / resolved note (5 bits).
-; $FF is rest. Resolve diagonals before packing to preserve the played note.
+; Patch=3 means rest: its low bits retain patch/octave changes between notes.
+; $FF is an empty frame. Resolve diagonals before packing the played note.
 .proc encode_note
-    lda #$FF
     ldx gate
-    beq done
+    bne note
+    lda sound
+    asl a
+    asl a
+    ora base_octave
+    ora #$60
+    jmp expression
+note:
     lda sound
     asl a
     asl a
@@ -301,6 +308,7 @@ silent:
     asl a
     asl a
     ora note_id
+expression:
     sta encoded_note
     lda buttons
     and #BTN_B
@@ -317,11 +325,29 @@ done:
     sta previous
     lda encoded_note
     cmp #$FF
-    bne note
+    bne stored
     lda #0
     sta buttons
     rts
+stored:
+    and #$60
+    cmp #$60
+    bne note
+    lda encoded_note
+    and #3
+    sta base_octave
+    lda encoded_note
+    lsr a
+    lsr a
+    and #3
+    sta sound
+    lda encoded_note
+    and #$80
+    lsr a
+    sta buttons
+    rts
 note:
+    lda encoded_note
     and #31
     pha
     lsr a

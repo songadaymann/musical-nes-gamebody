@@ -219,17 +219,21 @@ test('packed playback preserves notes, rests, octaves, patches, bursts, and diag
   app.tap('START');
   const length=app.word('loop_length');
   const notes=app.memory('loop_first',length);
-  assert.ok(notes.includes(255) && notes.some(n=>n!==255 && (n&128)));
+  assert.ok(notes.some(n=>(n&0x60)===0x60) && notes.some(n=>(n&0x60)!==0x60 && (n&128)));
   for(let i=0;i<length*3;i++) {
     const position=app.word('loop_position');
     app.frames(1);
     const expected=notes[position];
+    const rest=(expected&0x60)===0x60;
     assert.equal(app.value('loop_state'),3);
-    assert.equal(app.voice(1,'gate'),expected===255?0:1,`gate at ${position}`);
-    if(expected!==255) {
+    assert.equal(app.voice(1,'gate'),rest?0:1,`gate at ${position}`);
+    if(!rest) {
       assert.equal(app.voice(1,'note_id'),expected&31,`note at ${position}`);
       assert.equal(app.voice(1,'sound'),(expected>>5)&3,`patch at ${position}`);
       assert.equal(Boolean(app.voice(1,'buttons')&64),Boolean(expected&128));
+    } else if(expected!==255) {
+      assert.equal(app.voice(1,'sound'),(expected>>2)&3,`patch during rest at ${position}`);
+      assert.equal(app.voice(1,'base_octave'),expected&3);
     }
     assert.equal(app.value('gate'),0,'live input stays independent of playback');
   }
