@@ -35,7 +35,7 @@ function audioClock(sampleRate = 48000, diagnostics = true) {
 }
 
 for (const sampleRate of [44100, 48000, 96000]) {
-  test(`audio clock preserves every sample and stays below 31 ms at ${sampleRate} Hz`, () => {
+  test(`audio clock preserves every sample and stays below 35 ms at ${sampleRate} Hz`, () => {
     const clock = audioClock(sampleRate);
     const frameLength = Math.round(sampleRate / 60.0988);
     let produced = 0, consumed = 0;
@@ -49,7 +49,7 @@ for (const sampleRate of [44100, 48000, 96000]) {
       for (const value of clock.render([64, 128, 256][block % 3])) {
         assert.equal(value, ++consumed, 'no dropped, repeated, or silent samples');
       }
-      assert.ok((produced - consumed) / sampleRate < 0.031, 'queue stays bounded');
+      assert.ok((produced - consumed) / sampleRate < 0.035, 'queue stays bounded');
     }
     assert.equal(clock.processor.underrun, 0);
   });
@@ -79,9 +79,9 @@ test('normal message and emulation delays do not leave gaps', () => {
   clock.reply(clock.messages.shift(), Float32Array.from({ length: 799 }, () => ++produced));
   for (let block = 0; block < 3000; block++) {
     for (const message of clock.messages.splice(0)) {
-      if (message.type === 'frame') packet = { message, due: block + block % 4 };
+      if (message.type === 'frame') packet = { message, due: block + block % 6 };
     }
-    // Up to eight milliseconds between a request and its response.
+    // Up to 13.3 milliseconds between a request and its response.
     if (packet && packet.due <= block) {
       clock.reply(packet.message, Float32Array.from({ length: 799 }, () => ++produced));
       packet = null;

@@ -3,11 +3,11 @@
 class GamebodyAudio extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    this.samples = new Float32Array(Math.ceil(sampleRate / 30));
+    this.samples = new Float32Array(Math.ceil(sampleRate * 0.04));
     // Leave enough time for a frame's CPU work and the message round trip.
-    // Fourteen milliseconds covers observed scheduling jitter while keeping
-    // the queue below 31 ms, including the newly generated NES frame.
-    this.headroom = Math.ceil(sampleRate * 0.014);
+    // Allow for observed 13 ms CPU bursts plus the message round trip. The
+    // queue stays below 35 ms, including the newly generated NES frame.
+    this.headroom = Math.ceil(sampleRate * 0.018);
     this.diagnostics = Boolean(options?.processorOptions?.diagnostics);
     this.running = false;
     this.epoch = 0;

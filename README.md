@@ -126,8 +126,8 @@ emulator output without adding synthesis, effects, samples, or a backing track.
 ### Browser response time
 
 The audio clock requests one emulated frame at a time; drawing the screen does
-not schedule the sound. A 14 ms refill allowance keeps the queue below about
-31 ms while leaving time to emulate the next frame. Pausing freezes the ROM
+not schedule the sound. An 18 ms refill allowance keeps the queue below about
+35 ms while leaving time to emulate the next frame. Pausing freezes the ROM
 and discards pending sound; resuming continues the same recording or loop.
 
 If playing feels late through AirPods or other wireless headphones, compare
