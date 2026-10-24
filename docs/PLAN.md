@@ -1,38 +1,49 @@
-# First playable prototype
+# Gamebody prototype
 
-- [x] Choose an immediate eight-note layout and a momentary B effect.
-- [x] Build a standalone NTSC NES ROM using the console's own sound channels.
-- [x] Add a local browser emulator with keyboard, touch, and controller input.
-- [x] Verify pitches, note changes, release, octave limits, effects, and startup.
-- [x] Inspect the screen and browser experience; render an audio demonstration.
-- [x] Run the public-source check, commit, and publish the repository and ROM.
+## Version 0.2.0: sounds and two-part loops
 
-## Scope
+- [x] Make Select cycle C4 → C5 → C2 → C3 → C4.
+- [x] Make A+B at rest cycle square, triangle, and drums.
+- [x] Record up to 512 frames in the NES's internal RAM.
+- [x] Keep the first part playing while recording a second part.
+- [x] Keep live playing available during playback.
+- [x] Make Start tap record/loop/add/redo; hold one second to clear both parts.
+- [x] Update the cartridge display and accessible browser controls.
+- [x] Test tuning, sound changes, exact playback, boundaries, capacity,
+      channel priority, clearing, reset, and display timing.
+- [x] Render the audio example, inspect the browser display, and package the ROM.
 
-Working title: Gamebody. One expressive sound, immediate startup, no tracker,
-sequencer, configuration screens, or menus. The screen shows the note being
-played and the controls. All sound and instrument behavior must live in the ROM.
+All 26 ROM checks pass. The browser was checked through recording, adding a
+second part, pause/resume, and clearing, with no reported browser errors.
 
-Left/down/up/right play C/D/E/G. Holding A changes these to A/C/D/E higher
-in the C-major pentatonic scale. B repeats plucks with an octave answer. Select/Start
-move the base octave down/up, bounded at C2 and C5, starting at C4.
-Most-recently-pressed direction wins when directions overlap. Letting go of
-that direction falls back to any direction still held. Holding A or B alone
-does not start a note. Octave changes happen once per press.
+Two parts fit in ordinary NES working memory by storing the resolved note,
+patch, and burst flag in one byte per frame. Both last up to 8.52 seconds.
+No battery is needed during play. Recordings are lost on reset or power-off.
+The ROM keeps the original NROM layout without extra cartridge RAM.
 
-## Later decisions
+Live notes have first claim on the original audio channels. The second loop
+has priority over the first when they need the same triangle or noise channel.
+Two square leads fit at once; a quiet echo uses a spare pulse channel.
 
-Play with a real controller before choosing additional sounds or changing the
-layout. Confirm original-hardware timing and audio, then choose a compatible
-NROM cartridge board/flash cartridge. PAL tuning, Game Boy, MIDI, recording,
-presets, and standalone cartridge manufacturing are separate follow-ups.
+The user chose three native sounds and the ability to record another part
+while the loop plays. No substitute sine preset or single-phrase-only mode.
 
-## Checked on October 23, 2026
+## Version 0.1.0
 
-All 10 ROM tests pass locally and in [GitHub Actions](https://github.com/songadaymann/musical-nes-gamebody/actions/runs/40046287455).
-The browser preview boots, accepts keyboard input, pauses, resumes, and reports
-no browser errors. Real hardware, physical gamepads, and phone touch remain untested.
+- [x] Build a standalone NTSC NES ROM with immediate eight-note controls.
+- [x] Add momentary B bursts and a local browser emulator.
+- [x] Test pitches, note changes, release, octave limits, effects, and startup.
+- [x] Check the browser; render audio and a cartridge screenshot.
+- [x] Publish public source and the ROM.
 
-The [v0.1.0 ROM](https://github.com/songadaymann/musical-nes-gamebody/releases/tag/v0.1.0)
-was downloaded again and matches the tested local ROM byte for byte. The public
-source check found no blockers. GitHub secret scanning and push protection are on.
+The original 10 checks passed locally and in
+[GitHub Actions](https://github.com/songadaymann/musical-nes-gamebody/actions/runs/40046287455).
+The [v0.1.0 release](https://github.com/songadaymann/musical-nes-gamebody/releases/tag/v0.1.0)
+ROM matched the tested local build byte for byte.
+
+## Remaining hardware work
+
+Play with a physical controller, then test original NTSC hardware and a
+compatible NROM cartridge board or flash cartridge. Physical USB controllers
+and real phone touch remain untested. PAL, Game Boy, MIDI, persistent storage,
+and cartridge manufacturing are separate follow-ups.

@@ -8,13 +8,33 @@
   const pause = document.querySelector('#pause');
   const launch = document.querySelector('#launch');
   const status = document.querySelector('#status');
+  const loopAction = document.querySelector('#loop-action');
   const buttons = [...document.querySelectorAll('[data-button]')];
   const keyMap = { ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT', KeyX: 'A', KeyZ: 'B', ShiftLeft: 'SELECT', ShiftRight: 'SELECT', Enter: 'START' };
   const inputs = new Map();
   const applied = new Set();
-  let rom, nes, audio, speaker, running = false, loading = false;
+  let rom, addresses, nes, audio, speaker, running = false, loading = false;
+  let shownLoop = -1;
   let animation, nextFrame = 0, samples = [], gamepadConnected = false;
   const frameMs = 1000 / 60.0988;
+
+  // Reflect the cartridge's state for accessible browser controls. Recording
+  // itself lives in the ROM. Addresses are generated from assembler symbols.
+  function updateReadout() {
+    const mode = nes.cpu.mem[addresses.loop_state];
+    const secondPart = Boolean(nes.cpu.mem[addresses.layer_present]);
+    const state = mode + (secondPart ? 8 : 0);
+    if (state === shownLoop) return;
+    shownLoop = state;
+    const messages = [gamepadConnected ? 'Controller connected. Play.' : 'Pick a note. Make a melody.',
+      'Ready to record. Play a note.', 'Recording. Tap Enter to loop.',
+      secondPart ? 'Two parts playing. Play along.' : 'Loop playing. Play along, or record a part.',
+      'Adding a part. It repeats after one loop.'];
+    const actions = ['Record', 'Cancel', 'Play loop', secondPart ? 'Redo part' : 'Add part', 'Finish part'];
+    status.textContent = messages[mode];
+    loopAction.textContent = actions[mode];
+    loopAction.parentElement.setAttribute('aria-label', `${actions[mode]}, tap Start or Enter; hold to clear both parts`);
+  }
 
   function showError(error) {
     console.error(error);
@@ -62,7 +82,7 @@
     }
     if (Boolean(pad) !== gamepadConnected) {
       gamepadConnected = Boolean(pad);
-      status.textContent = pad ? 'Controller connected. Play!' : 'Pick a note. Make a melody.';
+      shownLoop = -1;
     }
     syncInputs();
   }
@@ -78,6 +98,7 @@
         nextFrame += frameMs;
         count++;
       }
+      updateReadout();
       if (samples.length) {
         const buffer = new Float32Array(samples);
         samples = [];
@@ -109,18 +130,19 @@
           onAudioSample(left, right) { samples.push((left + right) * 0.4); },
         });
         nes.loadROM(rom);
-        for (let i = 0; i < 8; i++) nes.frame();
+        for (let i = 0; i < 56; i++) nes.frame();
       }
       clearInputs();
-      // Finish any release tail before resuming after blur/pause.
-      for (let i = 0; i < 48; i++) nes.frame();
+      // Resume at the same frame. Advancing silently here would add rests to
+      // a recording or skip part of a playing loop.
       samples = [];
       speaker.port.postMessage({ type: 'clear' });
       running = true;
       launch.hidden = true;
       pause.hidden = false;
       pause.textContent = 'Pause sound';
-      status.textContent = 'Pick a note. Make a melody.';
+      shownLoop = -1;
+      updateReadout();
       nextFrame = performance.now();
       animation = requestAnimationFrame(tick);
       play.blur();
@@ -179,11 +201,12 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && running) stop(); });
   play.addEventListener('click', start);
   pause.addEventListener('click', () => running ? stop() : start());
-  fetch('gamebody.nes').then(response => {
-    if (!response.ok) throw new Error(`ROM load failed: ${response.status}`);
-    return response.arrayBuffer();
-  }).then(buffer => {
+  Promise.all([fetch('gamebody.nes'), fetch('rom-state.json')]).then(async ([romResponse, stateResponse]) => {
+    if (!romResponse.ok || !stateResponse.ok) throw new Error('The cartridge did not load.');
+    return Promise.all([romResponse.arrayBuffer(), stateResponse.json()]);
+  }).then(([buffer, stateAddresses]) => {
     rom = new Uint8Array(buffer);
+    addresses = stateAddresses;
     play.disabled = false;
     play.textContent = 'Make some noise →';
     status.textContent = 'Ready when you are.';

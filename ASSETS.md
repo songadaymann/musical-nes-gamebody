@@ -11,8 +11,8 @@ Credit "Jonathan Mann (Song A Day)".
 | Source | Material | License |
 | --- | --- | --- |
 | `scripts/assets.py` | Original pixel glyphs, instrument screen, and sprite patterns | CC BY 4.0 |
-| `src/main.s` | Original synthesized instrument patch; no samples | CC BY 4.0 for rendered sound; MIT for code |
-| `scripts/render-demo.mjs` | Original demonstration melody | CC BY 4.0 |
+| `src/main.s`, `src/voices.inc` | Original synthesized instrument patches; no samples | CC BY 4.0 for rendered sound; MIT for code |
+| `scripts/render-demo.mjs` | Original demonstration melody and layered performance | CC BY 4.0 |
 
 The build generates CHR graphics, a nametable, ROM, screenshots, and demo audio.
 Generated output stays outside Git in `build/` and `output/`.

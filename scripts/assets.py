@@ -31,7 +31,7 @@ GLYPHS = {
 }
 STEPS = [0, 2, 4, 7, 9, 12, 14, 16]
 NOTE_NAMES = ['C', 'D', 'E', 'G', 'A', 'C', 'D', 'E']
-GIANT_START = {name: 96 + i * 12 for i, name in enumerate('CDEGA*')}
+GIANT_START = {name: 96 + i * 12 for i, name in enumerate('CDEGA*KSHTORZ')}
 
 
 def encode_tile(pixels):
@@ -64,11 +64,11 @@ def generate(build: Path):
 
     # Solid notes and small sparkles, kept separate from the type tiles.
     for tile, rows in {
-        180: [0,0,24,60,60,24,0,0],
-        181: [0,16,16,124,16,16,0,0],
-        182: [0,0,0,126,126,0,0,0],
-        183: [255]*8,
-        184: [0,0,60,66,66,60,0,0],
+        8: [0,0,24,60,60,24,0,0],
+        9: [0,16,16,124,16,16,0,0],
+        10: [0,0,0,126,126,0,0,0],
+        11: [255]*8,
+        12: [0,0,60,66,66,60,0,0],
     }.items():
         tiles[tile] = bytes(rows + [0]*8)
 
@@ -79,16 +79,19 @@ def generate(build: Path):
             nametable[y*32+x+i] = ord(char)
 
     text(12, 3, 'GAMEBODY')
+    text(7, 17, 'HOLD START: CLEAR')
     for x in range(4, 28):
-        nametable[5*32+x] = 182
-    text(7, 21, 'E')
-    text(7, 23, '^')
-    text(3, 24, 'C <   > G')
-    text(7, 25, 'V')
-    text(7, 27, 'D')
-    text(16, 22, 'A  MORE')
-    text(16, 25, 'B  BURST')
-    text(4, 28, 'SELECT -   4   + START')
+        nametable[5*32+x] = 10
+    text(7, 20, 'E')
+    text(7, 22, '^')
+    text(3, 23, 'C <   > G')
+    text(7, 24, 'V')
+    text(7, 25, 'D')
+    text(16, 21, 'A   MORE')
+    text(16, 23, 'B   BURST')
+    text(16, 25, 'A+B SOUND')
+    text(2, 28, 'SELECT OCT 4')
+    text(17, 28, 'START REC')
 
     # Per-quadrant palettes, each tile uses one of four solid foreground colors.
     for ay in range(8):
@@ -106,12 +109,16 @@ def generate(build: Path):
     (build / 'tiles.chr').write_bytes(b''.join(tiles))
     (build / 'screen.nam').write_bytes(nametable)
     timers = []
+    triangle_timers = []
+    triangle_octaves = []
     octaves = []
     for base_octave in range(2, 6):
         for semitone in STEPS:
             midi = 12 * (base_octave+1) + semitone
             freq = 440 * 2**((midi-69)/12)
             timers.append(round(1789773/(16*freq)-1))
+            triangle_timers.append(round(1789773/(32*freq)-1))
+            triangle_octaves.append(round(1789773/(64*freq)-1))
             octaves.append(base_octave + semitone//12)
     octave_up = [round((timer+1)/2)-1 for timer in timers]
 
@@ -123,8 +130,22 @@ def generate(build: Path):
     data += byte_table('timer_high', [t >> 8 for t in timers])
     data += byte_table('octave_low', [t & 255 for t in octave_up])
     data += byte_table('octave_high', [t >> 8 for t in octave_up])
+    data += byte_table('triangle_low', [t & 255 for t in triangle_timers])
+    data += byte_table('triangle_high', [t >> 8 for t in triangle_timers])
+    data += byte_table('triangle_octave_low', [t & 255 for t in triangle_octaves])
+    data += byte_table('triangle_octave_high', [t >> 8 for t in triangle_octaves])
     data += byte_table('octave_ascii', [ord(str(n)) for n in octaves])
     data += byte_table('note_glyph', [GIANT_START[n] for n in NOTE_NAMES])
     data += byte_table('note_ascii', [ord(n) for n in NOTE_NAMES])
-    data += byte_table('wave_y', [round(9*math.sin(i*math.tau/32)) & 255 for i in range(32)])
+    data += byte_table('drum_glyph', [GIANT_START[n] for n in 'KSHTCORZ'])
+    data += byte_table('drum_ascii', [ord(n) for n in 'KSHTCORZ'])
+    data += byte_table('wave_y', [round(3*math.sin(i*math.tau/32)) & 255 for i in range(32)])
+    for name, frequencies in {
+        'kick': [170,145,120,96,80,70,62,58,55,53,52,51],
+        'tom': [280,250,225,210,200,195,190,185,180,178,176,174],
+        'zap': [1300,1000,760,580,440,340,260,200,150,115,85,65],
+    }.items():
+        values = [round(1789773/(32*f)-1) for f in frequencies]
+        data += byte_table(name+'_low', [t & 255 for t in values])
+        data += byte_table(name+'_high', [t >> 8 for t in values])
     (build / 'tables.inc').write_text(data)

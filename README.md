@@ -1,10 +1,10 @@
 # Gamebody
 
-A pick-up-and-play NES instrument. Press a direction to play a note, hold A for
-more notes, or hold B for bouncy rhythmic bursts. It starts ready to play.
+A pick-up-and-play NES instrument with square, triangle, and drum sounds.
+Play a phrase, loop it, and add a second part with one button.
 
-The sound and controls run inside a real `.nes` ROM. The browser preview runs
-that cartridge in [JSNES](https://github.com/bfirsh/jsnes).
+The sound, controls, and recorder run inside a real `.nes` ROM. The browser
+preview runs that cartridge in [JSNES](https://github.com/bfirsh/jsnes).
 
 **Play locally:** [localhost:4173](http://localhost:4173), after the setup below.
 There is no public web deployment yet.
@@ -17,20 +17,54 @@ There is no public web deployment yet.
 | --- | --- | --- |
 | Left / Down / Up / Right | Arrow keys | C / D / E / G |
 | Hold A + a direction | Hold X + an arrow | A / C / D / E, higher in the scale |
-| Hold B + a direction | Hold Z + an arrow | Repeating pluck, then an octave answer |
-| Select | Shift | Down one octave |
-| Start | Enter | Up one octave |
+| Hold B + a direction | Hold Z + an arrow | Rhythmic bursts; repeating hits for drums |
+| Tap A+B with directions released | Tap X+Z with arrows released | Square → triangle → drums → square |
+| Select | Shift | Cycle root octave: C4 → C5 → C2 → C3 → C4 |
+| Tap Start | Tap Enter | Record → loop → add a part |
+| Hold Start for one second | Hold Enter for one second | Clear both parts |
 
-The eight notes belong to C-major pentatonic: C, D, E, G, A, C, D, E.
-The root starts at C4 and can move from C2 to C5. A and B can be held together.
-They do not play notes on their own. The most recently pressed direction wins;
-releasing it returns to a direction still held. Ties within one frame use
-Right, Up, Down, Left priority. Select and Start together leave the octave unchanged.
+The eight pitched notes belong to C-major pentatonic: C, D, E, G, A, C, D, E.
+A and B can be held together while playing, and do not start a note alone.
+Release both before selecting another sound. The most recently pressed direction
+wins; releasing it returns to a direction still held. Ties within one frame use
+Right, Up, Down, Left priority. Octaves change once per Select press.
+
+In drums, the lower bank is kick / snare / closed hat / tom. Hold A for
+clap / open hat / click / zap. Select leaves drum pitches unchanged.
 
 Touch buttons support simultaneous notes and modifiers. Browser-standard
 gamepads use D-pad or left stick, bottom/right face buttons for A/B, and
 Select/Start. Nonstandard USB adapters may need a desktop emulator's mapping.
 The browser pauses on focus loss so notes cannot get stuck.
+
+## Make a loop
+
+1. Tap Start. The screen says **READY**; recording begins on your first note.
+2. Play a phrase. Tap Start again to repeat it. The first take closes
+   automatically at about 8½ seconds if you keep recording.
+3. Play along. Change sound or octave freely; the recorded part keeps its own
+   notes and sound changes.
+4. Tap Start to record a second part while the first keeps playing. Recording
+   lasts exactly one repetition, starting at the loop's current position.
+   It then plays both parts. Tap Start sooner to finish the second part early.
+5. Tap Start again to **REDO** the second part. The first stays intact.
+   Hold Start for one second to clear both and begin again.
+
+Start taps act when released. A second tap while READY cancels an empty take.
+When a take closes, release any held direction before playing along, so the
+same held note is not doubled.
+
+There are two recorded parts, each up to 512 video frames (about 8.52 seconds
+on NTSC). They fit in the NES's own 2 KiB of working memory. No battery or
+extra cartridge RAM is required to use the looper. Resetting or turning off
+the console loses the recording. This version has no save or export feature.
+
+The NES has two pulse channels, one triangle channel, and one noise channel.
+Live notes take priority, followed by the second recorded part. Two square
+parts can sound together. Overlapping triangle notes share one channel, as do
+noise-based drums; kick, tom, and zap also use the triangle channel. A part
+returns when the higher-priority note releases. Three simultaneous square
+parts share two channels. This is a limit of the original sound hardware.
 
 ## Run locally
 
@@ -49,7 +83,7 @@ No credentials or environment variables are needed.
    sudo apt install cc65
    ```
 
-2. Install the browser emulator and image utility:
+2. Install dependencies:
 
    ```sh
    npm ci
@@ -71,59 +105,62 @@ No credentials or environment variables are needed.
    Or open `build/gamebody.nes` in a desktop NES emulator set to NTSC.
 
 The build produces a 24,592-byte iNES ROM: 16 KiB program, 8 KiB graphics, and
-a 16-byte header. It uses NROM, the simplest NES cartridge layout, with no
-battery, mapper switching, expansion audio, or external files.
+a 16-byte header. It uses NROM, with no battery, mapper switching, expansion
+audio, samples, or external files.
 
 ## Sound
 
-The main voice is a 25% pulse wave with a quick pluck and a quiet sustained tail.
-A second pulse voice adds a soft echo about 266 ms later. Holding B replaces
-the echo with alternating plucks: the main note, then its octave, every eight
-video frames. This creates about 7.5 attacks per second, with short gaps.
-Changing notes restarts the burst. B is a live effect, not a latch.
+Square has a quick 25% pulse pluck and a quiet sustained tail. A spare pulse
+channel supplies a soft echo about 266 ms later. B alternates low and high
+plucks every eight video frames, with short gaps. The burst uses one channel
+so another part can play beside it.
 
-All sound comes from the NES's built-in audio hardware. The preview only plays
-the emulator's output; it adds no synthesizer, effects, samples, or backing track.
+Triangle uses the NES's native triangle wave. B alternates the note and its
+octave with short gaps. Drums combine noise envelopes with descending triangle
+tones; B repeats a hit every eight frames. There is no sine preset because the
+NES has no native sine oscillator.
+
+All sound comes from the NES's built-in audio hardware. The preview plays
+emulator output without adding synthesis, effects, samples, or a backing track.
 
 ## Check and render
 
 ```sh
 npm test
-```
-
-The emulator tests cover startup silence, all 32 note/octave combinations,
-A switching, direction overlap, octave limits, B's rhythm, note release,
-phase resets, and display writes during vertical blanking.
-
-```sh
 npm run demo
 ```
 
-This writes a 13-second audio example to `output/gamebody-demo.wav` and a
-cartridge screenshot to `output/cartridge-screen.png`. The melody plays once
-without B and once with B. Both are rendered from the ROM.
+The ROM tests cover startup silence, tuning, note and modifier gestures,
+all three sounds, recording, playing along, adding and replacing a second
+part, loop boundaries, capacity, clearing, reset, channel priority, and display
+writes during vertical blanking.
+
+The demo command writes `output/gamebody-demo.wav` and
+`output/cartridge-screen.png`. The audio records a square melody, adds a lower
+triangle part, then plays drums over both loops. It is rendered from the ROM.
 
 ## Limits
 
-This is a first playable prototype, checked in JSNES. Original NES hardware,
-flash cartridges, physical USB controllers, and touch on a real phone have not
-been tested. It targets NTSC; PAL needs separate tuning and rhythm timing.
-Cartridge manufacturing, Game Boy support, presets, recording, and MIDI are
-not part of this version.
+This prototype has been checked in JSNES. Original NES hardware, flash
+cartridges, physical USB controllers, and touch on a real phone have not been
+tested. It targets NTSC; PAL needs separate tuning and rhythm timing.
+Cartridge manufacturing, Game Boy support, saved recordings, and MIDI are
+separate follow-ups.
 
 The ROM polls once per video frame, about 16.6 ms. A browser or emulator adds
 its own latency, so feel and sound still need a playtest with a real controller.
 
 ## Source and license
 
-`src/main.s` contains the instrument. `scripts/assets.py` draws the original
-pixel art and calculates pitch tables. `web/` contains the emulator preview.
-`tests/` checks the built ROM.
+`src/main.s`, `src/controls.inc`, `src/voices.inc`, and `src/mixer.inc` contain
+the instrument. `scripts/assets.py` draws the original pixel art and calculates
+pitch tables. `web/` contains the emulator preview; `tests/` checks the ROM.
 
 Code: [MIT](LICENSE), copyright Jonathan Mann. Original art and demo audio:
 [CC BY 4.0](ASSETS.md). JSNES keeps its Apache-2.0 license. No private or paid
 assets are required.
 
 Hardware references: [NES audio](https://www.nesdev.org/wiki/APU_basics),
+[working memory](https://www.nesdev.org/wiki/CPU_memory_map),
 [controller input](https://www.nesdev.org/wiki/Standard_controller), and
 [NROM cartridges](https://www.nesdev.org/wiki/NROM).

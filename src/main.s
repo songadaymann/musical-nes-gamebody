@@ -14,6 +14,7 @@ BTN_A = $80
 BTN_B = $40
 BTN_SELECT = $20
 BTN_START = $10
+SOUND_COUNT = 3
 
 .segment "HEADER"
 .byte "NES", $1A, 1, 1, 0, 0 ; 16K PRG, 8K CHR, NROM, horizontal mirroring
@@ -22,13 +23,15 @@ BTN_START = $10
 .segment "ZEROPAGE"
 frame:          .res 1
 last_frame:     .res 1
+; This contiguous context is swapped between live, first loop, and second loop.
+voice_begin:
 buttons:        .res 1
 previous:       .res 1
 pressed:        .res 1
-direction:      .res 1 ; index in direction_bits; $FF = none
-base_octave:    .res 1 ; 0..3 -> root C2..C5
-note_slot:      .res 1 ; 0..7, independent of octave
-note_id:        .res 1 ; 0..31 timer-table index
+direction:      .res 1
+base_octave:    .res 1
+note_slot:      .res 1
+note_id:        .res 1
 old_note:       .res 1
 gate:           .res 1
 lead_volume:    .res 1
@@ -37,24 +40,75 @@ release_clock:  .res 1
 delay_pos:      .res 1
 echo_id:        .res 1
 echo_volume:    .res 1
-echo_pitch:     .res 1 ; index plus bit 7 for the octave voice
+echo_pitch:     .res 1
 echo_previous:  .res 1
 effect_clock:   .res 1
+sound:          .res 1
+rendered_sound: .res 1
+old_sound:      .res 1
+attack_flag:    .res 1
+voice_age:      .res 1
+triangle_on:    .res 1
+triangle_pitch: .res 1
+voice_pitch:    .res 1
+noise_volume:   .res 1
+pulse_pitch:    .res 1
+apu_shadow:    .res 16
+apu_dirty:     .res 1
+voice_end:
+VOICE_SIZE = voice_end - voice_begin
+
 ui_ready:       .res 1
 ui_note:        .res 1
 ui_octave:      .res 1
 ui_base:        .res 1
 ui_bank:        .res 1
 ui_labels:      .res 4
+ui_sound:       .res 1
+ui_loop:        .res 1
 ptr:            .res 2
 temp:           .res 1
 sprite_index:   .res 1
 phase:          .res 1
 nmi_tile:       .res 1
+raw_buttons:    .res 1
+raw_previous:   .res 1
+raw_pressed:    .res 1
+selected_octave: .res 1
+selected_sound: .res 1
+sound_latch:    .res 1
+start_hold:     .res 1
+live_muted:     .res 1
+loop_state:     .res 1 ; 0=live, 1=armed, 2=recording, 3=playing, 4=adding part
+loop_position:  .res 2
+loop_length:    .res 2
+dub_remaining:  .res 2
+layer_present:  .res 1
+loop_started:   .res 1
+encoded_note:   .res 1
+voice_index:    .res 1
+voice_offset:   .res 1
+pulse_one:      .res 1
+pulse_two:      .res 1
+triangle_owner: .res 1
+noise_owner:    .res 1
+old_pulse_one:  .res 1
+old_pulse_two:  .res 1
+old_triangle:   .res 1
+old_noise:      .res 1
+mix_level:      .res 1
+mix_owner:      .res 1
+mix_previous:   .res 1
+mix_mask:       .res 1
+mix_source:     .res 1
 
 .segment "BSS"
-delay_notes:    .res 16
-delay_volumes:  .res 16
+voice_states:   .res VOICE_SIZE * 3
+delay_notes:    .res 16 * 3
+delay_volumes:  .res 16 * 3
+.align 256
+loop_first:     .res 512
+loop_second:    .res 512
 
 .segment "CODE"
 .proc reset
@@ -136,26 +190,21 @@ palette_loop:
     bne palette_loop
 
     lda #$FF
-    sta direction
-    sta old_note
-    sta echo_previous
     ldx #0
 hide_sprites:
     sta $0200,x
     inx
     bne hide_sprites
-
     lda #2                ; begin at C4
-    sta base_octave
-    lda #3                ; pulse channels only
-    sta $4015
-    lda #$08              ; negate, shift=0: avoid sweep overflow muting low notes
+    sta selected_octave
+    jsr reset_all_voices
+    lda #64               ; fixed DAC level, no sample playback or DMC DMA
+    sta $4011
+    lda #$08
     sta $4001
     sta $4005
-    lda #$70
-    sta $4000
-    lda #$B0
-    sta $4004
+    lda selected_octave
+    sta base_octave
     jsr prepare_ui
     jsr draw_ui
     lda #0
@@ -173,8 +222,8 @@ main:
     lda #0
     sta ui_ready
     jsr read_controller
-    jsr choose_note
-    jsr play_sound
+    jsr global_controls
+    jsr perform_frame
     jsr animate
     jsr prepare_ui
     lda #1
@@ -183,49 +232,33 @@ main:
 .endproc
 
 .proc read_controller
-    lda buttons
-    sta previous
+    lda raw_buttons
+    sta raw_previous
     lda #1
     sta PAD
     lda #0
     sta PAD
-    sta buttons
+    sta raw_buttons
     ldx #8
 read_bit:
     lda PAD
     and #1
     lsr a
-    rol buttons
+    rol raw_buttons
     dex
     bne read_bit
-    lda previous
+    lda raw_previous
     eor #$FF
-    and buttons
-    sta pressed
+    and raw_buttons
+    sta raw_pressed
     rts
 .endproc
 
+.include "controls.inc"
+
 .proc choose_note
-    ; Both octave keys together cancel; holding one never auto-repeats.
-    lda buttons
-    and #(BTN_SELECT | BTN_START)
-    cmp #(BTN_SELECT | BTN_START)
-    beq choose_direction
-    lda pressed
-    and #BTN_SELECT
-    beq octave_up
-    lda base_octave
-    beq choose_direction
-    dec base_octave
-    jmp choose_direction
-octave_up:
-    lda pressed
-    and #BTN_START
-    beq choose_direction
-    lda base_octave
-    cmp #3
-    bcs choose_direction
-    inc base_octave
+    lda #0
+    sta attack_flag
 choose_direction:
     ; A new direction takes over immediately, including diagonal transitions.
     lda pressed
@@ -279,17 +312,19 @@ lower_bank:
     sta note_id
     cmp old_note
     bne attack
+    lda sound
+    cmp old_sound
+    bne attack
     lda gate
     bne held
 attack:
+    lda #1
+    sta attack_flag
+    lda sound
+    sta old_sound
     lda note_id
     sta old_note
     tax
-    lda timer_low,x
-    sta $4002
-    lda timer_high,x
-    ora #$08
-    sta $4003             ; write high only on note onset/change, never every frame
     lda #12
     sta lead_volume
     lda #0
@@ -302,124 +337,20 @@ held:
     rts
 .endproc
 
-.proc play_sound
-    lda gate
-    beq release
-    lda note_age
-    cmp #$FF
-    beq envelope
-    inc note_age
-envelope:
-    lda note_age
-    cmp #16
-    bcc pluck
-    lda #15
-pluck:
-    tax
-    lda pluck_envelope,x
-    sta lead_volume
-    lda buttons
-    and #BTN_B
-    beq lead
-    lda pressed
-    and #BTN_B
-    beq burst
-    lda #0
-    sta effect_clock
-burst:
-    lda effect_clock
-    and #15
-    tax
-    lda burst_lead,x
-    sta lead_volume
-    cpx #0
-    bne lead
-    ldx note_id
-    lda timer_high,x
-    ora #$08
-    sta $4003            ; a deliberate new attack once per rhythmic burst
-    jmp lead
-release:
-    inc release_clock
-    lda release_clock
-    and #1
-    bne lead
-    lda lead_volume
-    beq lead
-    dec lead_volume
-lead:
-    lda lead_volume
-    ora #$70             ; 25% duty pluck, constant volume, length counter halted
-    sta $4000
-
-    ; A 16-frame delayed second voice. Read before writing the ring slot.
-    ldx delay_pos
-    lda delay_notes,x
-    sta echo_id
-    lda delay_volumes,x
-    lsr a
-    lsr a
-    sta echo_volume
-    lda note_id
-    sta delay_notes,x
-    lda lead_volume
-    sta delay_volumes,x
-    inx
-    txa
-    and #15
-    sta delay_pos
-
-    lda echo_id
-    sta echo_pitch
-    lda gate
-    beq echo
-    lda buttons
-    and #BTN_B
-    beq echo
-    ; B repeats a low/high pair: the lead plucks on frame 0, the octave
-    ; answers on frame 8. Both voices have gaps, keeping the rhythm crisp.
-    lda effect_clock
-    and #15
-    tax
-    lda burst_octave,x
-    sta echo_volume
-    lda note_id
-    sta echo_id
-    ora #$80
-    sta echo_pitch
-    cpx #8
-    bne next_tick
-    lda #$FF
-    sta echo_previous    ; retrigger the octave voice once per pair
-next_tick:
-    inc effect_clock
-echo:
-    lda echo_volume
-    ora #$B0             ; 50% duty on the quieter octave/echo voice
-    sta $4004
-    lda echo_pitch
-    cmp echo_previous
-    beq done
-    sta echo_previous
-    ldx echo_id
-    lda echo_pitch
-    bmi high_octave
-    lda timer_low,x
-    sta $4006
-    lda timer_high,x
-    jmp set_high
-high_octave:
-    lda octave_low,x
-    sta $4006
-    lda octave_high,x
-set_high:
-    ora #$08
-    sta $4007
-done:
-    rts
-.endproc
+.include "voices.inc"
+.include "mixer.inc"
 
 .proc prepare_ui
+    lda sound
+    sta ui_sound
+    lda loop_state
+    cmp #3
+    bne ui_state
+    ldx layer_present
+    beq ui_state
+    lda #5
+ui_state:
+    sta ui_loop
     lda base_octave
     clc
     adc #'2'
@@ -435,7 +366,14 @@ labels:
     ldy ui_bank
     ldx #0
 copy_labels:
+    lda sound
+    cmp #2
+    bne melodic_label
+    lda drum_ascii,y
+    jmp label_ready
+melodic_label:
     lda note_ascii,y
+label_ready:
     sta ui_labels,x
     iny
     inx
@@ -444,6 +382,15 @@ copy_labels:
     lda gate
     beq resting
     ldx note_slot
+    lda sound
+    cmp #2
+    bne melodic_note
+    lda drum_glyph,x
+    sta ui_note
+    lda #' '
+    sta ui_octave
+    rts
+melodic_note:
     lda note_glyph,x
     sta ui_note
     ldx note_id
@@ -458,7 +405,7 @@ resting:
     rts
 .endproc
 
-; Only called during blanking. < 1100 cycles including NMI and DMA.
+; Only called during blanking. Runtime writes are checked in the emulator.
 .proc draw_ui
     bit PPUSTATUS
     lda ui_note
@@ -498,10 +445,58 @@ labels:
     bne labels
     lda #$23
     sta PPUADDR
-    lda #$8F             ; base octave at column 15, row 28
+    lda #$8D             ; base octave at column 13, row 28
     sta PPUADDR
     lda ui_base
     sta PPUDATA
+    lda #$20
+    sta PPUADDR
+    lda #$EC             ; patch name at column 12, row 7
+    sta PPUADDR
+    lda ui_sound
+    asl a
+    asl a
+    asl a
+    tax
+    ldy #8
+patch_name:
+    lda sound_names,x
+    sta PPUDATA
+    inx
+    dey
+    bne patch_name
+    lda #$22
+    sta PPUADDR
+    lda #$0C             ; loop state at column 12, row 16
+    sta PPUADDR
+    lda ui_loop
+    asl a
+    asl a
+    asl a
+    tax
+    ldy #8
+loop_name:
+    lda loop_names,x
+    sta PPUDATA
+    inx
+    dey
+    bne loop_name
+    lda #$23
+    sta PPUADDR
+    lda #$97             ; next Start action at column 23, row 28
+    sta PPUADDR
+    lda ui_loop
+    asl a
+    asl a
+    asl a
+    tax
+    ldy #5
+action:
+    lda start_actions,x
+    sta PPUDATA
+    inx
+    dey
+    bne action
     rts
 .endproc
 
@@ -512,29 +507,28 @@ labels:
     lsr a
     sta phase
 particle:
-    lda lead_volume
-    ora echo_volume
+    lda mix_level
     beq quiet
     lda phase
     and #31
     tay
     lda wave_y,y
     clc
-    adc #145
+    adc #148
     jmp position
 quiet:
-    lda #145
+    lda #148
 position:
     sta $0200,x
-    lda #180
+    lda #8
     ldy buttons
     tya
     and #BTN_B
     beq dot
-    lda #181
+    lda #9
     bne tile
 dot:
-    lda #180
+    lda #8
 tile:
     sta $0201,x
     lda sprite_index
@@ -566,7 +560,7 @@ tile:
     sta $0220
     lda highlight_x,x
     sta $0223
-    lda #182
+    lda #10
     sta $0221
     lda #1
     sta $0222
@@ -574,9 +568,9 @@ bank_indicator:
     lda buttons
     and #BTN_A
     beq effect_indicator
-    lda #175
+    lda #167
     sta $0224
-    lda #180
+    lda #8
     sta $0225
     lda #2
     sta $0226
@@ -586,9 +580,9 @@ effect_indicator:
     lda buttons
     and #BTN_B
     beq done
-    lda #199
+    lda #183
     sta $0228
-    lda #181
+    lda #9
     sta $0229
     lda #2
     sta $022A
@@ -632,14 +626,34 @@ irq:
 .segment "RODATA"
 direction_bits: .byte $02, $04, $08, $01 ; left, down, up, right
 giant_rows:     .byte $4E, $6E, $8E, $AE ; x14 y10..13
-label_hi:       .byte $23, $23, $22, $23
-label_lo:       .byte $03, $67, $A7, $0B ; C x3y24, D x7y27, E x7y21, G x11y24
+label_hi:       .byte $22, $23, $22, $22
+label_lo:       .byte $E3, $27, $87, $EB
 particle_x:     .byte 32, 58, 84, 110, 136, 162, 188, 214
 highlight_x:    .byte 24, 56, 56, 88
-highlight_y:    .byte 198, 222, 174, 198
+highlight_y:    .byte 190, 206, 166, 190
+sound_names:    .byte "SQUARE  ","TRIANGLE","DRUMS   "
+loop_names:     .byte "        ","READY   ","REC     ","LOOP    ","ADDING  ","2 PARTS "
+start_actions:  .byte "REC     ","STOP    ","LOOP    ","ADD     ","DONE    ","REDO    "
 pluck_envelope: .byte 12,12,11,10,9,8,7,6,5,4,3,3,3,3,3,3
 burst_lead:     .byte 12,10,8,6,4,2,1,0,0,0,0,0,0,0,0,0
 burst_octave:   .byte 0,0,0,0,0,0,0,0,8,6,4,3,2,1,0,0
+voice_offsets: .byte 0,VOICE_SIZE,VOICE_SIZE*2
+delay_offsets: .byte 0,16,32
+voice_priority: .byte 0,2,1
+drum_noise_period: .byte $0E,$06,$02,$0A,$07,$03,$83,$8A
+drum_body_kind: .byte 1,0,0,2,0,0,0,3
+drum_envelope_ptr_lo:
+    .byte <kick_env,<snare_env,<hat_env,<tom_env,<clap_env,<open_env,<click_env,<zap_env
+drum_envelope_ptr_hi:
+    .byte >kick_env,>snare_env,>hat_env,>tom_env,>clap_env,>open_env,>click_env,>zap_env
+kick_env: .byte 4,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+snare_env: .byte 15,13,11,9,8,7,6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+hat_env: .byte 10,7,4,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+tom_env: .byte 3,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+clap_env: .byte 12,3,0,11,3,0,10,8,6,4,3,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+open_env: .byte 10,10,9,9,8,8,7,7,6,6,5,5,4,4,3,3,2,2,1,1,0,0,0,0,0,0,0,0,0,0,0,0
+click_env: .byte 12,5,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+zap_env: .byte 4,4,4,3,3,2,2,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 palette:
     .byte $0F,$30,$28,$20, $0F,$2A,$28,$20
     .byte $0F,$27,$28,$20, $0F,$10,$28,$20
